@@ -67,27 +67,54 @@ def setup_driver(headless: bool = True) -> webdriver.Chrome:
     return driver
 
 
-def wait_for_list_load(driver: webdriver.Chrome, timeout: int = 20) -> bool:
+def wait_for_list_load(driver: webdriver.Chrome, timeout: int = 30) -> bool:
     """Wait for the Google Maps list to load."""
     print("Waiting for list to load...")
+    
+    # Try multiple selectors - Google Maps structure can vary
+    selectors_to_try = [
+        'main button',
+        'div[role="main"] button',
+        'button[data-item-id]',
+        'div[aria-label] button',
+        'div.m6QErb button',
+        'div.section-layout button',
+    ]
+    
+    # First wait for basic page load
+    time.sleep(5)
     
     try:
         # Wait for main content area
         WebDriverWait(driver, timeout).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, 'main'))
+            EC.presence_of_element_located((By.CSS_SELECTOR, 'main, div[role="main"]'))
         )
+        print("Main content area found")
         time.sleep(3)
         
-        # Wait for at least one place button to appear
-        WebDriverWait(driver, timeout).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, 'main button'))
-        )
-        print("List loaded successfully")
-        return True
+        # Try to find place buttons with multiple selectors
+        for selector in selectors_to_try:
+            try:
+                elements = driver.find_elements(By.CSS_SELECTOR, selector)
+                if elements and len(elements) > 0:
+                    print(f"Found elements with selector: {selector}")
+                    return True
+            except:
+                continue
+        
+        # Fallback: just check if there's any content
+        body_text = driver.find_element(By.TAG_NAME, 'body').text
+        if len(body_text) > 100:
+            print("Page has content, proceeding...")
+            return True
+        
+        print("Warning: Could not find expected elements")
+        return False
         
     except TimeoutException:
         print("Warning: Timeout waiting for list to load")
-        return False
+        # Don't fail immediately - try to proceed anyway
+        return True
 
 
 def get_place_buttons(driver: webdriver.Chrome) -> List:
@@ -426,10 +453,26 @@ def scrape_google_maps_list(
         print(f"Loading URL...")
         driver.get(url)
         
-        # Wait for page
-        time.sleep(5)
-        if not wait_for_list_load(driver, timeout=20):
-            raise Exception("Failed to load list page")
+        # Wait for page - longer initial wait
+        print("Initial page load wait...")
+        time.sleep(8)
+        
+        # Try to load the list
+        wait_for_list_load(driver, timeout=30)
+        
+        # Take extra time for dynamic content
+        time.sleep(3)
+        
+        # Debug: print page title and check for content
+        print(f"Page title: {driver.title}")
+        
+        # Check if we have any content
+        try:
+            body = driver.find_element(By.TAG_NAME, 'body')
+            body_text = body.text[:500] if body.text else "No text"
+            print(f"Page content preview: {body_text[:200]}...")
+        except:
+            print("Could not get page content")
         
         # Scroll to load all places
         scroll_and_collect_places(driver, scroll_pause=scroll_pause, max_scrolls=max_scrolls)
