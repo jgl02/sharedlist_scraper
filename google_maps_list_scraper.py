@@ -2,17 +2,17 @@
 """
 Google Maps Saved List Scraper
 Scrapes places from a public Google Maps saved list including notes.
-Designed for use with n8n automation workflows.
+Designed for use with n8n automation workflows via GitHub Actions.
 
 Requirements:
     pip install selenium webdriver-manager beautifulsoup4 pandas
 
 Usage:
-    python google_maps_list_scraper.py --url "YOUR_GOOGLE_MAPS_LIST_URL" --output "output.csv"
+    python google_maps_list_scraper.py --url "YOUR_GOOGLE_MAPS_LIST_URL" --city "Chicago" --output "output.csv"
     
     Or import and use programmatically:
     from google_maps_list_scraper import scrape_google_maps_list
-    data = scrape_google_maps_list(url)
+    data = scrape_google_maps_list(url, city="Chicago")
 """
 
 import argparse
@@ -211,13 +211,14 @@ def extract_notes_from_page(driver: webdriver.Chrome) -> dict:
     return notes_dict
 
 
-def parse_listings(soup: BeautifulSoup, notes_dict: dict = None) -> list:
+def parse_listings(soup: BeautifulSoup, notes_dict: dict = None, city: str = None) -> list:
     """
     Parse place listings from BeautifulSoup object.
     
     Args:
         soup: BeautifulSoup parsed HTML
         notes_dict: Dictionary of place names to notes
+        city: City name to tag each place with
     
     Returns:
         List of dictionaries containing place information
@@ -243,7 +244,8 @@ def parse_listings(soup: BeautifulSoup, notes_dict: dict = None) -> list:
             'url': None,
             'note': None,
             'lat': None,
-            'lng': None
+            'lng': None,
+            'city': city  # Add city tag to each place
         }
         
         try:
@@ -336,6 +338,7 @@ def parse_listings(soup: BeautifulSoup, notes_dict: dict = None) -> list:
 
 def scrape_google_maps_list(
     url: str,
+    city: str = None,
     output_file: Optional[str] = None,
     headless: bool = True,
     scroll_pause: float = 2.0,
@@ -347,6 +350,7 @@ def scrape_google_maps_list(
     
     Args:
         url: Google Maps list URL (must be public)
+        city: City name to tag all places from this list
         output_file: Optional CSV file path to save results
         headless: Run browser in headless mode
         scroll_pause: Time between scrolls
@@ -363,7 +367,8 @@ def scrape_google_maps_list(
         'data': [],
         'count': 0,
         'execution_time': 0,
-        'url': url
+        'url': url,
+        'city': city
     }
     
     driver = None
@@ -373,6 +378,7 @@ def scrape_google_maps_list(
         driver = setup_driver(headless=headless)
         
         print(f"Loading URL: {url}")
+        print(f"City tag: {city}")
         driver.get(url)
         
         # Wait for page to load
@@ -398,16 +404,16 @@ def scrape_google_maps_list(
         print("Parsing page content...")
         soup = BeautifulSoup(driver.page_source, 'html.parser')
         
-        # Parse listings
-        places = parse_listings(soup, notes_dict)
+        # Parse listings with city tag
+        places = parse_listings(soup, notes_dict, city=city)
         
         print(f"Successfully extracted {len(places)} places")
         
         # Create DataFrame
         df = pd.DataFrame(places)
         
-        # Reorder columns
-        column_order = ['place', 'address', 'category', 'rating', 'note', 'lat', 'lng', 'url']
+        # Reorder columns - city first for easy identification
+        column_order = ['city', 'place', 'address', 'category', 'rating', 'note', 'lat', 'lng', 'url']
         df = df[[col for col in column_order if col in df.columns]]
         
         # Save to file if specified
@@ -451,8 +457,8 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python google_maps_list_scraper.py --url "https://www.google.com/maps/..." --output places.csv
-  python google_maps_list_scraper.py --url "https://www.google.com/maps/..." --output places.json --headless
+  python google_maps_list_scraper.py --url "https://www.google.com/maps/..." --city "Chicago" --output places.csv
+  python google_maps_list_scraper.py --url "https://www.google.com/maps/..." --city "NYC" --output places.json --headless
         """
     )
     
@@ -460,6 +466,12 @@ Examples:
         '--url', '-u',
         required=True,
         help='Google Maps list URL (must be public)'
+    )
+    parser.add_argument(
+        '--city', '-c',
+        required=False,
+        default=None,
+        help='City name to tag all places from this list'
     )
     parser.add_argument(
         '--output', '-o',
@@ -501,6 +513,7 @@ Examples:
     
     result = scrape_google_maps_list(
         url=args.url,
+        city=args.city,
         output_file=args.output,
         headless=headless,
         scroll_pause=args.scroll_pause,
@@ -512,6 +525,7 @@ Examples:
     else:
         if result['success']:
             print(f"\n✓ {result['message']}")
+            print(f"  City: {result['city']}")
             print(f"  Execution time: {result['execution_time']}s")
             print(f"  Output saved to: {args.output}")
         else:
@@ -521,13 +535,14 @@ Examples:
 
 
 # For n8n Execute Command node - direct function call
-def n8n_scrape(url: str, output_path: str = None) -> str:
+def n8n_scrape(url: str, city: str = None, output_path: str = None) -> str:
     """
     Simplified function for n8n integration.
     Returns JSON string for easy parsing in n8n.
     
     Args:
         url: Google Maps list URL
+        city: City name to tag all places
         output_path: Optional output file path
     
     Returns:
@@ -535,6 +550,7 @@ def n8n_scrape(url: str, output_path: str = None) -> str:
     """
     result = scrape_google_maps_list(
         url=url,
+        city=city,
         output_file=output_path,
         headless=True,
         return_format='dict'

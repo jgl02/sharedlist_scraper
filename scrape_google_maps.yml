@@ -7,6 +7,10 @@ on:
         description: 'Google Maps List URL'
         required: true
         type: string
+      city:
+        description: 'City name (to tag the results)'
+        required: true
+        type: string
       output_filename:
         description: 'Output filename (without extension)'
         required: false
@@ -40,6 +44,7 @@ jobs:
         run: |
           python google_maps_list_scraper.py \
             --url "${{ github.event.inputs.list_url }}" \
+            --city "${{ github.event.inputs.city }}" \
             --output "output/${{ github.event.inputs.output_filename }}.json" \
             --headless \
             --json-output > scrape_result.json
@@ -49,22 +54,22 @@ jobs:
       - name: Upload results as artifact
         uses: actions/upload-artifact@v4
         with:
-          name: scrape-results
+          name: scrape-results-${{ github.event.inputs.city }}
           path: output/
           retention-days: 7
       
-      - name: Commit results to repo (optional)
+      - name: Commit results to repo
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
           git add output/ || true
-          git commit -m "Scraped data: ${{ github.event.inputs.output_filename }}" || echo "No changes to commit"
+          git commit -m "Scraped data: ${{ github.event.inputs.city }} - ${{ github.event.inputs.output_filename }}" || echo "No changes to commit"
           git push || echo "Nothing to push"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       
       - name: Output results summary
         run: |
-          echo "## Scrape Results" >> $GITHUB_STEP_SUMMARY
+          echo "## Scrape Results - ${{ github.event.inputs.city }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           cat scrape_result.json | jq '.' >> $GITHUB_STEP_SUMMARY
